@@ -35,7 +35,7 @@ class InterfaceHF:
         )
         self.audio_codec = AudioCodec(self.device)
         self.prompt_processor = PromptProcessor(model_path)
-        self.model = HFModel(model_path, self.device, dtype, **additional_model_config)
+        self.model = HFModel(model_path, self.device, dtype, additional_model_config)
 
     def prepare_prompt(self, text: str, speaker: dict = None):
         prompt = self.prompt_processor.get_completion_prompt(text, speaker)
