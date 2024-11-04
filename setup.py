@@ -8,7 +8,7 @@ with open('requirements.txt', 'r', encoding='utf-8') as fh:
 
 setup(
     name='outetts',
-    version='0.1.2',
+    version='0.1.4',
     packages=find_packages(),
     install_requires=install_requires,
     author='OuteAI',
