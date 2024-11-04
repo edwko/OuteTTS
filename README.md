@@ -67,4 +67,5 @@ https://www.outeai.com/blog/OuteTTS-0.1-350M
 ## Credits
 
 - WavTokenizer: [GitHub Repository](https://github.com/jishengpeng/WavTokenizer)
+    - Decoder and encoder folder files are from this repository
 - CTC Forced Alignment: [PyTorch Tutorial](https://pytorch.org/audio/stable/tutorials/ctc_forced_alignment_api_tutorial.html)
