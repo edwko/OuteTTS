@@ -87,7 +87,7 @@ class CTCForcedAlignment:
             emission, _ = self.model(waveform.to(self.device))
 
         tokenized_transcript = [self.DICTIONARY[c] for word in transcript for c in word]
-        alignments, scores = self._align(emission, tokenized_transcript)
+        alignments, scores = self._align(emission[0:1, :, :], tokenized_transcript)
         word_spans = self._extract_world_level(alignments, scores, transcript)
         num_frames = emission.size(1)
 
