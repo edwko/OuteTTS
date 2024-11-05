@@ -4,7 +4,7 @@ pyyaml
 huggingface_hub
 encodec
 matplotlib
-transformers
+transformers>=4.46.1
 pytorch-lightning
 tensorboardX
 soundfile
