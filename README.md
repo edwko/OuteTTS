@@ -4,6 +4,9 @@
 
 [🤗 Huggingface Demo](https://huggingface.co/spaces/drewThomasson/OuteTTS-DEMO)
 
+[![Open in Google Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DrewThomasson/OuteTTS/blob/main/notebooks/OuteTTS_Gradio_Demo.ipynb)
+
+
 OuteTTS is an experimental text-to-speech model that uses a pure language modeling approach to generate speech.
 
 ## Installation
