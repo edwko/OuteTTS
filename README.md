@@ -1,6 +1,7 @@
 # OuteTTS
 
 [![HuggingFace](https://img.shields.io/badge/🤗%20Hugging%20Face-OuteTTS_0.1_350M-orange)](https://huggingface.co/OuteAI/OuteTTS-0.1-350M)
+
 [🤗 Huggingface Demo](https://huggingface.co/spaces/drewThomasson/OuteTTS-DEMO)
 
 OuteTTS is an experimental text-to-speech model that uses a pure language modeling approach to generate speech.
