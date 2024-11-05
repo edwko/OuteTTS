@@ -80,6 +80,8 @@ class CTCForcedAlignment:
 
     def align(self, audio, transcript):
         waveform, sr = torchaudio.load(audio)
+        if waveform.shape[0] > 1:
+            waveform = waveform.mean(dim=0, keepdim=True)
         waveform = torchaudio.functional.resample(waveform, orig_freq=sr, new_freq=self.sample_rate)
         transcript = self.process_text(transcript)
 
