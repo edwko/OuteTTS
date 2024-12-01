@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 import os
 import json
+import numpy as np
 
 try:
     import sounddevice as sd
@@ -395,3 +396,46 @@ class InterfaceEXL2(InterfaceHF):
             logger.info("Audio generation completed")
 
         return ModelOutput(audio, self.audio_codec.sr)
+
+    def generate_stream(
+            self, 
+            text: str, 
+            speaker: dict = None, 
+            temperature: float = 0.1, 
+            repetition_penalty: float = 1.1,
+            max_length = 4096,
+            additional_gen_config = {},
+            additional_dynamic_generator_config = {},
+            chunk_size: int = 8,
+        ):
+        if chunk_size < 1:
+            raise ValueError("Chunk size should be 1 or more")
+        input_ids = self.prepare_prompt(text, speaker)
+        if self.verbose:
+            logger.info(f"Input tokens: {len(input_ids)}")
+            logger.info("Generating audio...")
+
+        self.check_generation_max_length(max_length)
+        pieces = []
+        size = 0
+        for piece in self.model.generate(
+            input_ids=input_ids,
+            config=GenerationConfig(
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+                max_length=max_length,
+                additional_gen_config=additional_gen_config,
+            ),
+            additional_dynamic_generator_config=additional_dynamic_generator_config
+        ):
+            if isinstance(piece, int):
+                pieces.append(piece)
+            if isinstance(piece, str):
+                size += 1
+            if size == chunk_size:
+                logger.info("Got chunk")
+                audio = self.get_audio(output)
+                yield ModelOutput(audio, self.audio_codec.sr)
+                pieces = []
+        if self.verbose:
+            logger.info("Audio generation completed")
