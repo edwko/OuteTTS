@@ -128,7 +128,7 @@ class InterfaceHF:
             prompt, 
             add_special_tokens=False, 
             return_tensors="pt"
-        ).to(self.model.device)
+        )
 
     def get_audio(self, tokens):
         output = self.prompt_processor.extract_audio_from_tokens(tokens)
@@ -255,7 +255,7 @@ class InterfaceHF:
             max_length: int = 4096,
             additional_gen_config={},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to(self.model.device)
         if self.verbose:
             logger.info(f"Input tokens: {input_ids.size()[-1]}")
             logger.info("Generating audio...")
@@ -361,9 +361,6 @@ class InterfaceEXL2(InterfaceHF):
             additional_model_config=config.additional_model_config,
         )
 
-    def prepare_prompt(self, text: str, speaker: dict = None):
-        return self.prompt_processor.get_completion_prompt(text, self.language, speaker)
-
     def generate(
             self, 
             text: str, 
@@ -374,7 +371,7 @@ class InterfaceEXL2(InterfaceHF):
             additional_gen_config = {},
             additional_dynamic_generator_config = {},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to("cpu")
         if self.verbose:
             logger.info(f"Input tokens: {len(input_ids)}")
             logger.info("Generating audio...")
@@ -397,6 +394,7 @@ class InterfaceEXL2(InterfaceHF):
 
         return ModelOutput(audio, self.audio_codec.sr)
 
+    # this method should eventually be moved up into the HF class
     def generate_stream(
             self, 
             text: str, 
@@ -410,7 +408,7 @@ class InterfaceEXL2(InterfaceHF):
         ):
         if chunk_size < 1:
             raise ValueError("Chunk size should be 1 or more")
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to("cpu")
         if self.verbose:
             logger.info(f"Input tokens: {len(input_ids)}")
             logger.info("Generating audio...")
@@ -418,7 +416,7 @@ class InterfaceEXL2(InterfaceHF):
         self.check_generation_max_length(max_length)
         pieces = []
         size = 0
-        for piece in self.model.generate(
+        for piece in self.model.generate_stream(
             input_ids=input_ids,
             config=GenerationConfig(
                 temperature=temperature,
@@ -433,9 +431,13 @@ class InterfaceEXL2(InterfaceHF):
             if isinstance(piece, str):
                 size += 1
             if size == chunk_size:
-                logger.info("Got chunk")
-                audio = self.get_audio(output)
+                audio = self.get_audio(pieces)
                 yield ModelOutput(audio, self.audio_codec.sr)
                 pieces = []
+                size = 0
+        if pieces != []:
+            audio = self.get_audio(pieces)
+            yield ModelOutput(audio, self.audio_codec.sr)
         if self.verbose:
             logger.info("Audio generation completed")
+        return
