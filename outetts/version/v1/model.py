@@ -112,7 +112,7 @@ class EXL2Model:
         self.model.load_autosplit(self.cache, progress=True)
         self.tokenizer = ExLlamaV2Tokenizer(config)
     
-    def generate(self, input_ids: str, config: GenerationConfig, additional_dynamic_generator_config: dict) -> list[int]:
+    def generate(self, input_ids: list[int], config: GenerationConfig, additional_dynamic_generator_config: dict) -> list[int]:
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
@@ -123,7 +123,7 @@ class EXL2Model:
         input_size = self.tokenizer.encode(input_ids).size()[-1]
 
         output = generator.generate(
-            prompt = input_ids,
+            input_ids = input_ids,
             max_new_tokens = config.max_length,
             add_bos = False,
             decode_special_tokens=True,
@@ -138,13 +138,15 @@ class EXL2Model:
         return self.tokenizer.encode(output).flatten().tolist()[input_size:]
 
 
-    def generate_stream(self, input_ids: list[int], config: GenerationConfig):
+    def generate_stream(self, input_ids: list[int], config: GenerationConfig, additional_dynamic_generator_config: dict):
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
             tokenizer = self.tokenizer,
+            **additional_dynamic_generator_config,
         )
-        job = ExLlamaV2DynamicJob(input_ids=torch.tensor([input_ids]),
+        job = ExLlamaV2DynamicJob(
+            input_ids=input_ids.to("cpu"),
             max_new_tokens=config.max_length,
             gen_settings = ExLlamaV2Sampler.Settings(token_repetition_penalty=config.repetition_penalty, temperature=config.temperature, **config.additional_gen_config),
         )
@@ -156,7 +158,10 @@ class EXL2Model:
             for result in results:
                 assert result["job"] == job
                 if result["stage"] == "streaming":
-                    yield int(result.get("token_ids", "")[0][0])
-                    if result.get("text", "").strip() != None: yield result.get("text", "").strip()
-                    if tokens[-1] == self.tokenizer.eos_token_id:
+                    text = result.get("text", "").strip()
+                    token_id = int(result.get("token_ids", "")[0][0])
+                    yield token_id
+                    if text != "":
+                        yield text
+                    if token_id == self.tokenizer.eos_token_id:
                         eos = True
