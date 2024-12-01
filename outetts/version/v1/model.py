@@ -136,5 +136,27 @@ class EXL2Model:
         )
 
         return self.tokenizer.encode(output).flatten().tolist()[input_size:]
-   
-   
+
+
+   def generate_stream(self, input_ids: list[int], config: GenerationConfig):
+        generator = ExLlamaV2DynamicGenerator(
+            model = self.model,
+            cache = self.cache,
+            tokenizer = self.tokenizer,
+        )
+        job = ExLlamaV2DynamicJob(input_ids=torch.tensor([input_ids]),
+            max_new_tokens=config.max_length,
+            gen_settings = ExLlamaV2Sampler.Settings(token_repetition_penalty=config.repetition_penalty, temperature=config.temperature, **config.additional_gen_config),
+        )
+        generator.enqueue(job)
+        eos = False
+        while not eos:
+            results = generator.iterate()
+            # Only batches one at a time. Has room for improvement.
+            for result in results:
+                assert result["job"] == job
+                if result["stage"] == "streaming":
+                    yield int(result.get("token_ids", "")[0][0])
+                    if result.get("text", "").strip() != None: yield result.get("text", "").strip()
+                    if tokens[-1] == self.tokenizer.eos_token_id:
+                        eos = True
