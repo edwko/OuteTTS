@@ -138,7 +138,7 @@ class EXL2Model:
         return self.tokenizer.encode(output).flatten().tolist()[input_size:]
 
 
-   def generate_stream(self, input_ids: list[int], config: GenerationConfig):
+    def generate_stream(self, input_ids: list[int], config: GenerationConfig):
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
