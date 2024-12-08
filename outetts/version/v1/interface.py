@@ -1,14 +1,16 @@
-from ...wav_tokenizer.audio_codec import AudioCodec
-from .prompt_processor import PromptProcessor
-from .model import HFModel, GGUFModel, EXL2Model, GenerationConfig
-from ...whisper import transcribe
-import torch
-from .alignment import CTCForcedAlignment
-import torchaudio
-from dataclasses import dataclass, field
-from loguru import logger
-import os
 import json
+import os
+from dataclasses import dataclass, field
+
+import torch
+import torchaudio
+from loguru import logger
+
+from ...wav_tokenizer.audio_codec import AudioCodec
+from ...whisper import transcribe
+from .alignment import CTCForcedAlignment
+from .model import EXL2Model, GenerationConfig, GGUFModel, HFModel
+from .prompt_processor import PromptProcessor
 
 try:
     import sounddevice as sd
@@ -335,6 +337,69 @@ class InterfaceGGUF(InterfaceHF):
             logger.info("Audio generation completed")
 
         return ModelOutput(audio, self.audio_codec.sr)
+    
+    def generate_stream(
+            self, 
+            text: str, 
+            speaker: dict = None, 
+            temperature: float = 0.1, 
+            repetition_penalty: float = 1.1,
+            max_length = 4096,
+            chunk_size = 50,
+            additional_gen_config = {},
+    ) -> Generator[ModelOutput, None, None]:
+        """
+        Generate audio tokens in a streaming manner.
+        
+        :param text: Input text to generate audio for
+        :param speaker: Optional speaker information
+        :param temperature: Sampling temperature
+        :param repetition_penalty: Penalty for token repetition
+        :param max_length: Maximum number of tokens to generate
+        :param additional_gen_config: Additional generation configurations
+        :param chunk_size: Number of tokens to generate per chunk
+        :yield: Incremental ModelOutput with audio chunks
+        """
+        input_ids = self.prepare_prompt(text, speaker)
+        if self.verbose:
+            logger.info(f"Input tokens: {len(input_ids)}")
+            logger.info("Streaming audio generation...")
+        
+        self.check_generation_max_length(max_length)
+        
+        # Track tokens for progressive audio generation
+        generated_tokens = []
+        
+        # Stream generation
+        for token in self.model.generate_stream(
+            input_ids=input_ids,
+            config=GenerationConfig(
+                temperature=temperature,
+                max_length=max_length,
+                repetition_penalty=repetition_penalty,
+                additional_gen_config=additional_gen_config,
+            )
+        ):
+            generated_tokens.append(token)
+            
+            # Periodically convert tokens to audio chunks
+            # You might want to adjust the chunk size based on your specific requirements
+            if len(generated_tokens) % chunk_size == 0:  # Example: generate chunk every 50 tokens
+                try:
+                    audio_chunk = self.get_audio(generated_tokens)
+                    yield ModelOutput(audio_chunk, self.audio_codec.sr)
+                    generated_tokens = []
+                except Exception as e:
+                    if self.verbose:
+                        logger.warning(f"Error generating audio chunk: {e}")
+        
+        # Final audio chunk
+        if generated_tokens:
+            final_audio = self.get_audio(generated_tokens)
+            yield ModelOutput(final_audio, self.audio_codec.sr)
+        
+        if self.verbose:
+            logger.info("Streaming audio generation completed")
 
 class InterfaceEXL2(InterfaceHF):
     def __init__(

@@ -1,4 +1,6 @@
 from dataclasses import dataclass, field
+from typing import Generator
+
 import torch
 from loguru import logger
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -10,8 +12,12 @@ except ImportError:
     _GGUF_AVAILABLE = False
 
 try:
-    from exllamav2 import ExLlamaV2, ExLlamaV2Config, ExLlamaV2Cache, ExLlamaV2Tokenizer
-    from exllamav2.generator import ExLlamaV2DynamicGenerator, ExLlamaV2DynamicJob, ExLlamaV2Sampler
+    from exllamav2 import ExLlamaV2, ExLlamaV2Cache, ExLlamaV2Config, ExLlamaV2Tokenizer
+    from exllamav2.generator import (
+        ExLlamaV2DynamicGenerator,
+        ExLlamaV2DynamicJob,
+        ExLlamaV2Sampler,
+    )
     _EXL2_AVAILABLE = True
 except ImportError:
     _EXL2_AVAILABLE = False
@@ -90,6 +96,19 @@ class GGUFModel:
                 break
 
         return tokens
+    
+    def generate_stream(self, input_ids: list[int], config: GenerationConfig) -> Generator[int, None, None]:
+        for token in self.model.generate(
+            input_ids,
+            temp=config.temperature,
+            repeat_penalty=config.repetition_penalty,
+            **config.additional_gen_config,
+        ):
+            yield token
+
+            if (llama_token_is_eog(self.model._model.model, token) or 
+                len(input_ids) >= config.max_length):
+                break
 
 class EXL2Model:
     def __init__(
