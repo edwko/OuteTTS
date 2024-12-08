@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 import os
 import json
+import numpy as np
 
 try:
     import sounddevice as sd
@@ -127,7 +128,7 @@ class InterfaceHF:
             prompt, 
             add_special_tokens=False, 
             return_tensors="pt"
-        ).to(self.model.device)
+        )
 
     def get_audio(self, tokens):
         output = self.prompt_processor.extract_audio_from_tokens(tokens)
@@ -254,7 +255,7 @@ class InterfaceHF:
             max_length: int = 4096,
             additional_gen_config={},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to(self.model.device)
         if self.verbose:
             logger.info(f"Input tokens: {input_ids.size()[-1]}")
             logger.info("Generating audio...")
@@ -360,9 +361,6 @@ class InterfaceEXL2(InterfaceHF):
             additional_model_config=config.additional_model_config,
         )
 
-    def prepare_prompt(self, text: str, speaker: dict = None):
-        return self.prompt_processor.get_completion_prompt(text, self.language, speaker)
-
     def generate(
             self, 
             text: str, 
@@ -373,7 +371,7 @@ class InterfaceEXL2(InterfaceHF):
             additional_gen_config = {},
             additional_dynamic_generator_config = {},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to("cpu")
         if self.verbose:
             logger.info(f"Input tokens: {len(input_ids)}")
             logger.info("Generating audio...")
@@ -395,3 +393,51 @@ class InterfaceEXL2(InterfaceHF):
             logger.info("Audio generation completed")
 
         return ModelOutput(audio, self.audio_codec.sr)
+
+    # this method should eventually be moved up into the HF class
+    def generate_stream(
+            self, 
+            text: str, 
+            speaker: dict = None, 
+            temperature: float = 0.1, 
+            repetition_penalty: float = 1.1,
+            max_length = 4096,
+            additional_gen_config = {},
+            additional_dynamic_generator_config = {},
+            chunk_size: int = 8,
+        ):
+        if chunk_size < 1:
+            raise ValueError("Chunk size should be 1 or more")
+        input_ids = self.prepare_prompt(text, speaker).to("cpu")
+        if self.verbose:
+            logger.info(f"Input tokens: {len(input_ids)}")
+            logger.info("Generating audio...")
+
+        self.check_generation_max_length(max_length)
+        pieces = []
+        size = 0
+        for piece in self.model.generate_stream(
+            input_ids=input_ids,
+            config=GenerationConfig(
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+                max_length=max_length,
+                additional_gen_config=additional_gen_config,
+            ),
+            additional_dynamic_generator_config=additional_dynamic_generator_config
+        ):
+            if isinstance(piece, int):
+                pieces.append(piece)
+            if isinstance(piece, str):
+                size += 1
+            if size == chunk_size:
+                audio = self.get_audio(pieces)
+                yield ModelOutput(audio, self.audio_codec.sr)
+                pieces = []
+                size = 0
+        if pieces != []:
+            audio = self.get_audio(pieces)
+            yield ModelOutput(audio, self.audio_codec.sr)
+        if self.verbose:
+            logger.info("Audio generation completed")
+        return
