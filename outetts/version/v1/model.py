@@ -130,8 +130,12 @@ class EXL2Model:
         self.model.load_autosplit(self.cache, progress=True)
         self.tokenizer = ExLlamaV2Tokenizer(config)
 
+    def generate(self, input_ids: list[int], config: GenerationConfig,, additional_dynamic_generator_config: dict, stream: bool = False):
+        if stream:
+            return self._generate_stream(input_ids, config, additional_dynamic_generator_config)
+        return self._generate(input_ids, config, additional_dynamic_generator_config)
 
-    def generate(self, input_ids: str, config: GenerationConfig, additional_dynamic_generator_config: dict, stream: bool = False) -> list[int]:
+    def _generate(self, input_ids: str, config: GenerationConfig, additional_dynamic_generator_config: dict) -> list[int]:
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
@@ -160,8 +164,8 @@ class EXL2Model:
 
         return self.tokenizer.encode(output).flatten().tolist()[input_size:]
 
-
-    def generate_stream(self, input_ids: list[int], config: GenerationConfig, additional_dynamic_generator_config: dict):
+    
+    def _generate_stream(self, input_ids: list[int], config: GenerationConfig, additional_dynamic_generator_config: dict):
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
@@ -181,10 +185,7 @@ class EXL2Model:
             for result in results:
                 assert result["job"] == job
                 if result["stage"] == "streaming":
-                    text = result.get("text", "").strip()
-                    token_id = int(result.get("token_ids", "")[0][0])
-                    yield token_id
-                    if text != "":
-                        yield text
-                    if token_id == self.tokenizer.eos_token_id:
+                    token = int(result.get("token_ids", "")[0][0])
+                    yield token
+                    if token == self.tokenizer.eos_token_id:
                         eos = True
