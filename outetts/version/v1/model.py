@@ -32,8 +32,8 @@ class HFModel:
         additional_model_config: dict = {}
     ) -> None:
         self.device = torch.device(
-            device if device is not None 
-            else "cuda" if torch.cuda.is_available() 
+            device if device is not None
+            else "cuda" if torch.cuda.is_available()
             else "cpu"
         )
         self.device = torch.device(device)
@@ -44,7 +44,10 @@ class HFModel:
             **additional_model_config
         ).to(device)
 
-    def generate(self, input_ids: torch.Tensor, config: GenerationConfig) -> list[int]:
+    def generate(self, input_ids: torch.Tensor, config: GenerationConfig, stream: bool = False) -> list[int]:
+        if stream:
+            raise NotImplementedError("Stream generation is not supported for HF models.")
+
         return self.model.generate(
             input_ids,
             max_length=config.max_length,
@@ -62,7 +65,7 @@ class GGUFModel:
             max_seq_length: int = 4096,
             additional_model_config: dict = {}
     ) -> None:
-        
+
         if not _GGUF_AVAILABLE:
             raise ImportError(
                 "llama_cpp python module not found."
@@ -75,8 +78,24 @@ class GGUFModel:
             n_gpu_layers=n_gpu_layers,
             **additional_model_config
         )
-    
-    def generate(self, input_ids: list[int], config: GenerationConfig) -> list[int]:
+
+    def generate(self, input_ids: list[int], config: GenerationConfig, stream: bool = False):
+        if stream:
+            return self._generate_stream(input_ids, config)
+        return self._generate(input_ids, config)
+
+    def _generate_stream(self, input_ids: list[int], config: GenerationConfig):
+        for token in self.model.generate(
+            input_ids,
+            temp=config.temperature,
+            repeat_penalty=config.repetition_penalty,
+            **config.additional_gen_config,
+        ):
+            yield token
+            if llama_token_is_eog(self.model._model.model, token):
+                break
+
+    def _generate(self, input_ids: list[int], config: GenerationConfig) -> list:
         tokens = []
         for token in self.model.generate(
             input_ids,
@@ -88,7 +107,6 @@ class GGUFModel:
             if (llama_token_is_eog(self.model._model.model, token) or 
                 len(tokens) >= config.max_length):
                 break
-
         return tokens
 
 class EXL2Model:
@@ -98,7 +116,7 @@ class EXL2Model:
             max_seq_length: int,
             additional_model_config: dict = {},
     ) -> None:
-        
+
         if not _EXL2_AVAILABLE:
             raise ImportError(
                 "exllamav2 python module not found."
@@ -111,14 +129,23 @@ class EXL2Model:
         self.cache = ExLlamaV2Cache(self.model, max_seq_len=config.max_seq_len, lazy=True)
         self.model.load_autosplit(self.cache, progress=True)
         self.tokenizer = ExLlamaV2Tokenizer(config)
-    
-    def generate(self, input_ids: list[int], config: GenerationConfig, additional_dynamic_generator_config: dict) -> list[int]:
+
+
+    def generate(self, input_ids: str, config: GenerationConfig, additional_dynamic_generator_config: dict, stream: bool = False) -> list[int]:
         generator = ExLlamaV2DynamicGenerator(
             model = self.model,
             cache = self.cache,
             tokenizer = self.tokenizer,
             **additional_dynamic_generator_config
         )
+        if stream:
+            raise NotImplementedError("Stream generation is not supported for EXL2 models.")
+
+        gen_settings = ExLlamaV2Sampler.Settings(
+                    token_repetition_penalty=config.repetition_penalty,
+                    temperature=config.temperature,
+                    **config.additional_gen_config
+                ),
 
         input_size = self.tokenizer.encode(input_ids).size()[-1]
 
@@ -127,11 +154,7 @@ class EXL2Model:
             max_new_tokens = config.max_length,
             add_bos = False,
             decode_special_tokens=True,
-            gen_settings = ExLlamaV2Sampler.Settings(
-                token_repetition_penalty=config.repetition_penalty, 
-                temperature=config.temperature, 
-                **config.additional_gen_config
-            ),
+            gen_settings = gen_settings,
             stop_conditions=[self.tokenizer.eos_token_id]
         )
 

@@ -1,0 +1,20 @@
+{
+  "name": "outetts",
+  "version": "0.0.1",
+  "description": "OuteTTS is an experimental text-to-speech model that uses a pure language modeling approach to generate speech, without architectural changes to the foundation model itself.",
+  "main": "outetts.js/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "vitest",
+    "coverage": "vitest run --coverage"
+  },
+  "author": "OuteAI",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@huggingface/transformers": "^3.1.2"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^2.1.8",
+    "vitest": "^2.1.8"
+  }
+}
