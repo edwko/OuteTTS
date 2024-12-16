@@ -1,7 +1,8 @@
 from dataclasses import dataclass, field
 import torch
 from loguru import logger
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+from threading import Thread
 
 try:
     from llama_cpp import Llama, llama_token_is_eog
@@ -44,10 +45,34 @@ class HFModel:
             **additional_model_config
         ).to(device)
 
-    def generate(self, input_ids: torch.Tensor, config: GenerationConfig, stream: bool = False) -> list[int]:
-        if stream:
-            raise NotImplementedError("Stream generation is not supported for HF models.")
 
+    def generate(self, input_ids: torch.Tensor, config: GenerationConfig, stream: bool = False):
+        if stream:
+            return self._generate_stream(input_ids, config)
+        return self._generate(input_ids, config)
+
+    def _generate_stream(self, input_ids: list[int], config: GenerationConfig):
+        streamer = TextIteratorStreamer(
+            self.model.tokenizer,
+            skip_prompt=True,
+        )
+        gen_args = {
+            "max_length": config.max_length,
+            "temperature": config.temperature,
+            "repetition_penalty": config.repetition_penalty,
+            "do_sample": True,
+            "streamer": streamer,
+            **config.additional_gen_config,
+        }
+        model_thread = Thread(target=self.model.generate, kwargs=gen_args)
+        model_thread.start()
+        for token in streamer:
+            yield token
+            if token == self.model.tokenizer # eos id
+        # this is where i left off
+        
+
+    def _generate(self, input_ids: torch.Tensor, config: GenerationConfig) -> list[int]:
         return self.model.generate(
             input_ids,
             max_length=config.max_length,
