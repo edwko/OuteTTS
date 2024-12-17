@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from loguru import logger
 import os
 import json
+import numpy as np
 import threading
 import queue
 import re
@@ -130,7 +131,7 @@ class InterfaceHF:
             prompt,
             add_special_tokens=False,
             return_tensors="pt"
-        ).to(self.model.device)
+        )
 
     def get_audio(self, tokens):
         output = self.prompt_processor.extract_audio_from_tokens(tokens)
@@ -257,7 +258,7 @@ class InterfaceHF:
             max_length: int = 4096,
             additional_gen_config={},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to(self.model.device)
         if self.verbose:
             logger.info(f"Input tokens: {input_ids.size()[-1]}")
             logger.info("Generating audio...")
@@ -288,7 +289,7 @@ class InterfaceHF:
     # ------------------------------------------------ #
 
     def _create_audio_chunk(self, tokens: list[int], idx: int):
-        audio = self.get_audio(tokens)
+        audio = self.get_audio([x[0] for x in tokens])
         size = audio.size()
         audio = audio[:, idx:]
         return ModelOutput(audio, self.audio_codec.sr), size[-1]
@@ -303,6 +304,7 @@ class InterfaceHF:
         additional_gen_config: dict = {},
         additional_dynamic_generator_config: dict = {},
         chunk_size: int = 8,
+        decode_cache_size: int = 2,
         stream_segments: bool = False
     ):
         if chunk_size < 4:
@@ -336,7 +338,7 @@ class InterfaceHF:
 
         for token in self.model.generate(**gen_config):
 
-            audio_buffer.append(token)
+            audio_buffer.append((token, chunk))
 
             if not stream_segments:
 
@@ -345,7 +347,14 @@ class InterfaceHF:
 
                 if chunks == chunk_size:
                     output, start_index = self._create_audio_chunk(audio_buffer, start_index)
+                    # TODO: audio should slice properly with new audio buffer stuff (untested)
                     chunks = 0
+                    temp_audio_buffer = []
+                    for token in audio_buffer:
+                        if token[1] in list(range(chunk_size, chunk_size - decode_cache_size)):
+                            temp_audio_buffer.append((token[0], -1 * (chunk_size - token[1])))
+                    audio_buffer = temp_audio_buffer
+                    del temp_audio_buffer
                     yield output
 
         if audio_buffer:
@@ -505,9 +514,6 @@ class InterfaceEXL2(InterfaceHF):
             additional_model_config=config.additional_model_config,
         )
 
-    def prepare_prompt(self, text: str, speaker: dict = None):
-        return self.prompt_processor.get_completion_prompt(text, self.language, speaker)
-
     def generate(
             self,
             text: str,
@@ -518,7 +524,7 @@ class InterfaceEXL2(InterfaceHF):
             additional_gen_config = {},
             additional_dynamic_generator_config = {},
         ) -> ModelOutput:
-        input_ids = self.prepare_prompt(text, speaker)
+        input_ids = self.prepare_prompt(text, speaker).to("cpu")
         if self.verbose:
             logger.info(f"Input tokens: {len(input_ids)}")
             logger.info("Generating audio...")
