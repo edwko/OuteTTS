@@ -66,9 +66,11 @@ class HFModel:
         }
         model_thread = Thread(target=self.model.generate, kwargs=gen_args)
         model_thread.start()
+        # streamer is in text right now !!
+        
         for token in streamer:
             yield token
-            if token == self.model.tokenizer # eos id
+            if token == self.model.tokenizer.eos_token # eos id
         # this is where i left off
         
 
