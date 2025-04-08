@@ -5,7 +5,7 @@ from .config import GenerationConfig
 from .info import GenerationType
 
 try:
-    from exllamav2 import ExLlamaV2, ExLlamaV2Config, ExLlamaV2Cache, ExLlamaV2Tokenizer
+    from exllamav2 import ExLlamaV2, ExLlamaV2Config, ExLlamaV2Cache, ExLlamaV2CacheBase, ExLlamaV2Tokenizer
     from exllamav2.generator import ExLlamaV2DynamicGenerator, ExLlamaV2DynamicJob, ExLlamaV2Sampler
     _EXL2_AVAILABLE = True
 except:
@@ -15,8 +15,9 @@ class EXL2Model:
     def __init__(
             self,
             model_path: str,
-            max_seq_length: int,
+            max_seq_length: int = 4096,
             additional_model_config: dict = {},
+            cache_impl: ExLlamaV2CacheBase = ExLlamaV2Cache,
     ) -> None:
 
         if not _EXL2_AVAILABLE:
@@ -27,7 +28,7 @@ class EXL2Model:
         
         config = ExLlamaV2Config(model_path)
         self.model = ExLlamaV2(config)
-        self.cache = ExLlamaV2Cache(self.model, max_seq_len=1024*32, lazy=False)
+        self.cache = cache_impl(self.model, max_seq_len=max_seq_length, lazy=True)
         self.model.load_autosplit(self.cache, progress=True)
         self.tokenizer = ExLlamaV2Tokenizer(config)
         additional_dynamic_generator_config = additional_model_config.get("additional_dynamic_generator_config", {})
