@@ -284,7 +284,7 @@ class InterfaceHF:
         
         if config.generation_type == info.GenerationType.CHUNKED:
             output = self.chunk_generation(config)
-        if config.generation_type == info.GenerationType.STREAMING:
+        if config.generation_type == info.GenerationType.STREAM:
             output = self.stream_generation(config)
         elif config.generation_type == info.GenerationType.GUIDED_WORDS:
             logger.warning("Guided words generation is experimental and may not work as expected.")
