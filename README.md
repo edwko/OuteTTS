@@ -124,20 +124,18 @@ For a complete usage guide, refer to the interface documentation here:
 
 ## Usage Recommendations for OuteTTS version 1.0
 > [!IMPORTANT]
-> **Important Sampling Considerations Across Different Backends**  
->
-> **OuteTTS Version 1.0** supports multiple backends; however, since each handles sampling differently,
-> **llama.cpp** delivers the most reliable and consistent output quality by default.
-> For optimal results, I recommend using the **llama.cpp** backend with this model.
->
-> I also strongly recommend using the model with the specified settings in **Sampling Configuration**.
-> Deviating from these settings may result in low quality or broken outputs.
-> This issue stems primarily from how different backends implement the **repetition penalty**.
-> This model performs best with a **windowed approach** (using a **64-token window**), where the penalty is applied only to the most recent tokens, rather than across the entire context window.
->
-> **Llama.cpp** and **EXL2** support such sampling, while **Transformers** don't.
-> To address this, I've implemented a **windowed repetition penalty** for the **Hugging Face Transformers** backend in the **OuteTTS** library, which significantly improves output quality and resolves sampling issues, providing comparable results to llama.cpp.
-> Without this adjustment, output quality may suffer considerably.
+> **Important Sampling Considerations**  
+> 
+> When using OuteTTS version 1.0, it is crucial to use the settings specified in the [Sampling Configuration](https://github.com/edwko/OuteTTS?tab=readme-ov-file#sampling-configuration) section.
+> 
+> The **repetition penalty implementation** is particularly important - this model requires penalization applied to a **64-token recent window**,
+> rather than across the entire context window. Penalizing the entire context will cause the model to produce **broken or low-quality output**.
+> 
+> Currently, **llama.cpp** delivers the most reliable and consistent output quality by default.
+> Both **llama.cpp** and **EXL2** support this windowed sampling approach, while **Transformers** doesn't.
+> 
+> To address this limitation, I've implemented a **windowed repetition penalty** for the **Hugging Face Transformers** backend in the **OuteTTS** library,
+> which significantly improves output quality and resolves sampling issues, providing comparable results to llama.cpp.
 
 ### Speaker Reference
 The model is designed to be used with a speaker reference. Without one, it generates random vocal characteristics, often leading to lower-quality outputs. 
@@ -148,7 +146,7 @@ For example, if you use a Japanese speaker and continue speech in English, the m
 ### Multilingual Application
 It is recommended to create a speaker profile in the language you intend to use. This helps achieve the best results in that specific language, including tone, accent, and linguistic features.
 
-While the model supports cross-lingual translation, it still relies on the reference speaker. If the speaker has a distinct accent—such as British English—other languages may carry that accent as well.
+While the model supports cross-lingual speech, it still relies on the reference speaker. If the speaker has a distinct accent—such as British English—other languages may carry that accent as well.
 
 ### Optimal Audio Length
 - **Best Performance:** Generate audio around **42 seconds** in a single run (approximately 8,192 tokens). It is recomended not to near the limits of this windows when generating. Usually, the best results are up to 7,000 tokens.
@@ -173,9 +171,7 @@ For optimal results with this TTS model, use the following sampling settings.
 |-------------------|----------|
 | Temperature       | 0.4      |
 | Repetition Penalty| 1.1      |
-| Repetition Range  | 64       |
+| **Repetition Range**  | **64**       |
 | Top-k             | 40       |
 | Top-p             | 0.9      |
 | Min-p             | 0.05     |
-
-For production or high-quality needs, I strongly recommend using **llama.cpp** for the best results.
