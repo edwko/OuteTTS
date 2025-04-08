@@ -269,9 +269,8 @@ class InterfaceHF:
             logger.info(f"Proccessing: Chunk {i+1} / {chunk_size}")
 
             input_ids = self.prepare_prompt(chunk, config.speaker)
-
-            output = self._generate(input_ids, config)
-            yield output # todo: add new class with .text and .audio
+            for i in self._generate_stream(input_ids, config)
+                yield output # todo: add new class with .text and .audio
     
     def regular_generation(self, config: GenerationConfig):
         input_ids = self.prepare_prompt(config.text, config.speaker)
