@@ -1,5 +1,7 @@
 from loguru import logger
 from tqdm import tqdm
+from queue import Queue
+import threading
 import asyncio
 
 from .config import GenerationConfig
@@ -95,6 +97,16 @@ class Exl2AsyncLoop:
         self.thread = threading.Thread(target=run_loop, args=[self.loop], daemon=True)
         self.thread.start()
 
+class AsyncToken:
+    def __init__(self, idx, token):
+        self.idx = idx
+        self.token = token
+
+class AsyncManager:
+    def __init__(self, input_size, tokens_size):
+        self.input_size = input_size
+        self.tokens_size = tokens_size
+
 class EXL2ModelAsync(EXL2Model):
     def __init__(
             self,
@@ -124,11 +136,11 @@ class EXL2ModelAsync(EXL2Model):
             model=self.model, cache=self.cache, tokenizer=self.tokenizer, **self.additional_dynamic_generator_config
         )
 
-    async def _generate_async_job(self, chunk, idx, pbar):
+    async def _generate_async_job(self, chunk, idx, pbar, queue, manager):
         job = ExLlamaV2DynamicJobAsync(
             self.generator
             input_ids=self.tokenizer.encode(chunk, add_bos=False, add_eos=False, encode_special_tokens=True),
-            max_new_tokens=config.max_length - input_size,
+            max_new_tokens=config.max_length - manager.input_size,
             stop_conditions=[self.tokenizer.eos_token_id],
             gen_settings=gen_settings,
             decode_special_tokens=True,
@@ -137,8 +149,11 @@ class EXL2ModelAsync(EXL2Model):
             tokens = result.get("token_ids", "")
             if tokens is None:
                 continue
-            yield tokens
             pbar.update(1)
+            manager.tokens_size += 1
+            pbar.set_postfix({"tokens": manager.input_size + manager.tokens_size, "max tokens": config.max_length})
+            queue.put(AsyncToken(idx, tokens))
+        queue.put(AsyncToken(idx, None))
     
     def _generate_async(self, chunks, original, config: GenerationConfig):
         gen_settings = ExLlamaV2Sampler.Settings(
@@ -156,6 +171,8 @@ class EXL2ModelAsync(EXL2Model):
         tokens = self.tokenizer.encode(original, add_bos=False, add_eos=False, encode_special_tokens=True)
         tokens_size = len(tokens)
         input_size = len(tokens.flatten().tolist())
+        manager = AsyncManager(input_size, tokens_size)
+        job_queue = Queue()
         job = ExLlamaV2DynamicJob(
             input_ids=tokens,
             max_new_tokens=config.max_length - input_size,
@@ -166,14 +183,22 @@ class EXL2ModelAsync(EXL2Model):
         )
         self.generator.enqueue(job)
         with tqdm(desc="Generating") as pbar:
-            while self.generator.num_remaining_jobs() > 0:
-                results = self.generator.iterate()
-                for result in results:
-                    token = result.get("token_ids", None)
-                    if token is None:
-                        continue
-                    pbar.update(1)
-                    pbar.set_postfix({"tokens": input_size + tokens_size, "max tokens": config.max_length})
-                    for t in token.flatten().tolist():
-                        yield t
-                        tokens_size += 1
+            for idx, i in enumerate(chunks):
+                asyncio.run_coroutine_threadsafe(coro=self._generate_async_job(i, idx, pbar, job_queue, manager), self.loop.loop)
+            current_chunk = 0
+            all_tokens = [[]]*len(chunks)
+            while current_chunk < len(chunks):
+                token = job_queue.get()
+                if token[1] == None:
+                    current_chunk += 1
+                    all_tokens[token.idx].append(None)
+                    continue
+                all_tokens[token.idx].append(token.token)
+                for idx, i in enumerate(all_tokens[current_chunk]):
+                    if i != None:
+                        yield i
+                        all_tokens[current_chunk].pop(idx)
+            for chunk in all_tokens:
+                for i in chunk:
+                    if i != None:
+                        yield i
