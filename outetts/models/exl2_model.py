@@ -9,7 +9,7 @@ from .info import GenerationType
 
 try:
     from exllamav2 import ExLlamaV2, ExLlamaV2Config, ExLlamaV2Cache, ExLlamaV2CacheBase, ExLlamaV2Tokenizer
-    from exllamav2.generator import ExLlamaV2DynamicGenerator, ExLlamaV2DynamicJob, ExLlamaV2Sampler
+    from exllamav2.generator import ExLlamaV2DynamicGenerator, ExLlamaV2DynamicGeneratorAsync, ExLlamaV2DynamicJob, ExLlamaV2DynamicJobAsync, ExLlamaV2Sampler
     _EXL2_AVAILABLE = True
 except:
     _EXL2_AVAILABLE = False
@@ -91,7 +91,7 @@ class EXL2Model:
 def run_loop(loop):
     loop.run_forever()
 
-class Exl2AsyncLoop:
+class EXL2AsyncLoop:
     def __init__(self):
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=run_loop, args=[self.loop], daemon=True)
@@ -106,6 +106,7 @@ class AsyncManager:
     def __init__(self, input_size, tokens_size):
         self.input_size = input_size
         self.tokens_size = tokens_size
+        self.chunks = []
 
 class EXL2ModelAsync(EXL2Model):
     def __init__(
@@ -131,29 +132,48 @@ class EXL2ModelAsync(EXL2Model):
         self.loop = EXL2AsyncLoop()
         asyncio.run_coroutine_threadsafe(self._get_gen(), loop=self.loop.loop).result()
 
-    def _get_gen(self):
-        self.generator = ExLlamaV2DynamicGenerator(
-            model=self.model, cache=self.cache, tokenizer=self.tokenizer, **self.additional_dynamic_generator_config
+    async def _get_gen(self):
+        self.generator = ExLlamaV2DynamicGeneratorAsync(
+            model=self.model, cache=self.cache, tokenizer=self.tokenizer, **self.additional_dynamic_generator_config, max_chunk_size=2048
         )
 
-    async def _generate_async_job(self, chunk, idx, pbar, queue, manager, gen_settings):
-        job = ExLlamaV2DynamicJobAsync(
-            self.generator
-            input_ids=self.tokenizer.encode(chunk, add_bos=False, add_eos=False, encode_special_tokens=True),
-            max_new_tokens=config.max_length - manager.input_size,
-            stop_conditions=[self.tokenizer.eos_token_id],
-            gen_settings=gen_settings,
-            decode_special_tokens=True,
-        ) 
-        async for result in job:
-            tokens = result.get("token_ids", "")
-            if tokens is None:
-                continue
-            pbar.update(1)
-            manager.tokens_size += 1
-            pbar.set_postfix({"tokens": manager.input_size + manager.tokens_size, "max tokens": config.max_length})
-            queue.put(AsyncToken(idx, tokens))
+    async def _generate_async_job(self, chunk, idx, pbar, queue, manager, gen_settings, config):
+        #print(chunk)
+        try:
+            job = ExLlamaV2DynamicJobAsync(
+                self.generator,
+                input_ids=self.tokenizer.encode(chunk, add_bos=False, add_eos=False, encode_special_tokens=True),
+                max_new_tokens=2048,
+                stop_conditions=[self.tokenizer.eos_token_id],
+                gen_settings=gen_settings,
+                decode_special_tokens=True,
+            ) 
+            idx_added = False
+            async for result in job:
+                if idx_added == False:
+                    manager.chunks.append(idx)
+                    idx_added = True
+                tokens = result.get("token_ids", "")
+                if tokens is None:
+                    continue
+                try:
+                    tokens = int(tokens)
+                except:
+                    continue
+                pbar.update(1)
+                manager.tokens_size += 1
+                pbar.set_postfix({"tokens": manager.input_size + manager.tokens_size, "chunks": manager.chunks})
+                queue.put(AsyncToken(idx, tokens))
+        except Exception as e:
+            print("Exception in engine:")
+            print(repr(e))
+            import sys, os, traceback
+            exc_type, exc_obj, exc_tb = sys.exc_info()
+            fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+            print(exc_type, fname, exc_tb.tb_lineno)
+            print(traceback.format_exc())
         queue.put(AsyncToken(idx, None))
+        manager.chunks.remove(idx)
     
     def _generate_async(self, chunks, original, config: GenerationConfig):
         gen_settings = ExLlamaV2Sampler.Settings(
@@ -175,21 +195,17 @@ class EXL2ModelAsync(EXL2Model):
         job_queue = Queue()
         with tqdm(desc="Generating") as pbar:
             for idx, i in enumerate(chunks):
-                asyncio.run_coroutine_threadsafe(coro=self._generate_async_job(i, idx, pbar, job_queue, manager, gen_settings), self.loop.loop)
+                asyncio.run_coroutine_threadsafe(coro=self._generate_async_job(i, idx, pbar, job_queue, manager, gen_settings, config), loop=self.loop.loop)
             current_chunk = 0
-            all_tokens = [[]]*len(chunks)
+            all_tokens = {idx: list() for idx in range(len(chunks))} # basically just a list of lists but list of lists didnt work right
             while current_chunk < len(chunks):
                 token = job_queue.get()
                 if token.token == None:
                     current_chunk += 1
-                    all_tokens[token.idx].append(None)
+                    manager.chunk = current_chunk
                     continue
                 all_tokens[token.idx].append(token.token)
-                for idx, i in enumerate(all_tokens[current_chunk]):
-                    if i != None:
-                        yield i
-                        all_tokens[current_chunk].pop(idx)
-            for chunk in all_tokens:
-                for i in chunk:
-                    if i != None:
-                        yield i
+            audio = []
+            for chunk in [all_tokens[idx] for idx in range(len(chunks))]:
+                audio.extend(chunk)
+            return audio
