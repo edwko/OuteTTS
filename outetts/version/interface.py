@@ -2,12 +2,14 @@ import torch
 from loguru import logger
 import os
 import json
+import asyncio
 import polars as pl
+from tqdm import tqdm
 
 from ..models.config import ModelConfig, GenerationConfig, info
 from ..models.hf_model import HFModel
 from ..models.gguf_model import GGUFModel
-from ..models.exl2_model import EXL2Model
+from ..models.exl2_model import EXL2Model, EXL2ModelAsync
 from ..utils.chunking import chunk_text
 from ..utils import preprocessing
 from .playback import ModelOutput
@@ -250,14 +252,40 @@ class InterfaceHF:
 
         logger.info(f"Created: {chunk_size} text chunks")
         for i, chunk in enumerate(text_chunks):
-            logger.info(f"Proccessing: Chunk {i+1} / {chunk_size}")
+            logger.info(f"Processing: Chunk {i+1} / {chunk_size}")
 
             input_ids = self.prepare_prompt(chunk, config.speaker)
 
             output = self._generate(input_ids, config)
             audio_chunks.extend(output)
 
+        print(audio_chunks)
         return audio_chunks
+
+    def stream_generation(self, config: GenerationConfig):
+        text_chunks = chunk_text(config.text)
+        chunk_size = len(text_chunks)
+
+        logger.info(f"Created: {chunk_size} text chunks")
+        for i, chunk in enumerate(text_chunks):
+            logger.info(f"Processing: Chunk {i+1} / {chunk_size}")
+
+            input_ids = self.prepare_prompt(chunk, config.speaker)
+            for i in self._generate_stream(input_ids, config):
+                yield output # todo: add new class with .text and .audio
+
+    def async_generation(self, config: GenerationConfig):
+        text_chunks = chunk_text(config.text)
+        audio_chunks = []
+        chunk_size = len(text_chunks)
+
+        logger.info(f"Created: {chunk_size} text chunks")
+        result = self._generate_async([self.prepare_prompt(i, config.speaker) for i in text_chunks], config.text, config)
+        #for i in result:
+        #    #print(i)
+        #    audio_chunks.extend(i)
+        #    #yield i
+        return result
     
     def regular_generation(self, config: GenerationConfig):
         input_ids = self.prepare_prompt(config.text, config.speaker)
@@ -270,6 +298,14 @@ class InterfaceHF:
         
         if config.generation_type == info.GenerationType.CHUNKED:
             output = self.chunk_generation(config)
+        elif config.generation_type == info.GenerationType.STREAM:
+            output = self.stream_generation(config)
+        elif config.generation_type == info.GenerationType.ASYNC:
+            output = self.async_generation(config)
+            if self.config.interface_version != info.InterfaceVersion.V3:
+                raise ValueError("Async generation is only supported for InterfaceVersion.V3")
+            if self.config.backend != info.Backend.EXL2:
+                raise ValueError("Async generation supports only exl2 backend.")
         elif config.generation_type == info.GenerationType.GUIDED_WORDS:
             logger.warning("Guided words generation is experimental and may not work as expected.")
             if self.config.interface_version != info.InterfaceVersion.V3:
@@ -314,11 +350,20 @@ class InterfaceEXL2(InterfaceHF):
         self.config = config
 
     def get_model(self):
-        return EXL2Model(
-            model_path=self.config.model_path,
-            max_seq_length=self.config.max_seq_length,
-            additional_model_config=self.config.additional_model_config,
-        )
+        if self.config.exl2_async:
+            return EXL2ModelAsync(
+                model_path=self.config.model_path,
+                max_seq_length=self.config.max_seq_length,
+                additional_model_config=self.config.additional_model_config,
+                cache_impl=self.config.exl2_cache_impl,
+            )
+        else:
+            return EXL2Model(
+                model_path=self.config.model_path,
+                max_seq_length=self.config.max_seq_length,
+                additional_model_config=self.config.additional_model_config,
+                cache_impl=self.config.exl2_cache_impl,
+            )
 
     def _prepare_prompt(self, prompt: str):
         return prompt
@@ -326,5 +371,12 @@ class InterfaceEXL2(InterfaceHF):
     def _generate(self, input_ids, config):
         return self.model.generate(
             input_ids=input_ids,
+            config=config,
+        )
+
+    def _generate_async(self, chunks, original, config):
+        return self.model._generate_async(
+            chunks=chunks,
+            original=original,
             config=config,
         )
