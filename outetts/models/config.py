@@ -97,6 +97,8 @@ class ModelConfig:
         audio_codec_path: str = None,
         max_seq_length: int = 8192,
         n_gpu_layers: int = 0,
+        exl2_cache_impl = None,
+        exl2_async = False,
         **kwargs
     ):
         self.model_path = model_path
@@ -110,6 +112,8 @@ class ModelConfig:
         self.audio_codec_path = audio_codec_path
         self.max_seq_length = max_seq_length
         self.n_gpu_layers = n_gpu_layers
+        self.exl2_cache_impl = exl2_cache_impl
+        self.exl2_async = exl2_async
 
         # Accept and set any extra keyword arguments as attributes
         for key, value in kwargs.items():
