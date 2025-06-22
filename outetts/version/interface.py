@@ -253,7 +253,7 @@ class InterfaceHF:
 
         logger.info(f"Created: {chunk_size} text chunks")
         for i, chunk in enumerate(text_chunks):
-            logger.info(f"Proccessing: Chunk {i+1} / {chunk_size}")
+            logger.info(f"Processing: Chunk {i+1} / {chunk_size}")
 
             input_ids = self.prepare_prompt(chunk, config.speaker)
 
@@ -261,6 +261,19 @@ class InterfaceHF:
             audio_chunks.extend(output)
 
         return audio_chunks
+
+    def stream_generation(self, config: GenerationConfig):
+        text_chunks = chunk_text(config.text)
+        audio_chunks = []
+        chunk_size = len(text_chunks)
+
+        logger.info(f"Created: {chunk_size} text chunks")
+        for i, chunk in enumerate(text_chunks):
+            logger.info(f"Processing: Chunk {i+1} / {chunk_size}")
+
+            input_ids = self.prepare_prompt(chunk, config.speaker)
+            for i in self._generate_stream(input_ids, config):
+                yield output # todo: add new class with .text and .audio
     
     def regular_generation(self, config: GenerationConfig):
         input_ids = self.prepare_prompt(config.text, config.speaker)
@@ -321,6 +334,8 @@ class InterfaceHF:
         
         if config.generation_type == info.GenerationType.CHUNKED:
             output = self.chunk_generation(config)
+        elif config.generation_type == info.GenerationType.STREAM:
+            output = self.stream_generation(config)
         elif config.generation_type == info.GenerationType.GUIDED_WORDS:
             logger.warning("Guided words generation is experimental and may not work as expected.")
             if self.config.interface_version != info.InterfaceVersion.V3:
