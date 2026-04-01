@@ -96,7 +96,9 @@ class HFModel:
             model_path,
             torch_dtype=dtype,
             **additional_model_config
-        ).to(self.device)
+        )
+        if "quantization_config" not in additional_model_config or not additional_model_config["quantization_config"]:
+            self.model.to(self.device)
         self.tokenizer = AutoTokenizer.from_pretrained(model_path)
 
     def _generate(self, input_ids: torch.Tensor, config: GenerationConfig):
